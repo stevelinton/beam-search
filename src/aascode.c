@@ -103,7 +103,7 @@ int main(int argc, char **argv) {
     int nprobes = 3;
     if (argc >= 5)
         nprobes = atoi(argv[4]);
-    char * seed = malloc(data_size);
+    char * seed = calloc(1,data_size);
     ((code)seed)->len = 2;
     ((code)seed)->fitness = 4;
     ((code)seed)->code[0] = 0;
