@@ -27,7 +27,7 @@ static void visit_children(const char *parent, void visit(const char *, void *),
     char ch[data_size];
     code child = (code)ch;
     for (int k = 2; k < P; k++) {
-        if (c->mask[k] != 1) {
+        if (c->mask[k] != (char)1) {
             memcpy(ch, parent, data_size);
             child->code[child->len++] = k;
             if (child->mask[k] == (char)0)
@@ -89,6 +89,7 @@ int main(int argc, char **argv) {
     if (argc >= 5)
         nprobes = atoi(argv[4]);
     char * seed = malloc(data_size);
+    memset(seed, 0, data_size);
     ((code)seed)->len = 2;
     ((code)seed)->fitness = 3;
     ((code)seed)->code[0] = 0;
