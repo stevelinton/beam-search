@@ -44,8 +44,7 @@ static void free_ht(hashtab h) {
 
 #define IN_USE 0xFFFFFFFF
 
-uint32_t get_control(hashtab h, uint64_t k) {
-  uint32_t fit = h->fitness[k];
+uint32_t get_control(hashtab h, uint64_t k, uint32_t fit) {
   while (1) {
     uint32_t nfit = __sync_val_compare_and_swap(&(h->fitness[k]), fit, IN_USE);
     if (nfit == fit) {
@@ -80,7 +79,7 @@ static void ht_probe(hashtab h, const char *item) {
       fit = h->fitness[key];
     }
     if (!fit) {
-      fit = get_control(h, key);
+        fit = get_control(h, key, 0);
       havelock = true;
       if (!fit) {
         memcpy(h->data + h->data_size * key, item, h->data_size);
@@ -94,7 +93,7 @@ static void ht_probe(hashtab h, const char *item) {
     }
     if (fit < myfit) {
       if (!havelock) {
-        fit = get_control(h, key);
+          fit = get_control(h, key, fit);
         havelock = true;
       }
       if (fit < myfit) {
@@ -117,7 +116,7 @@ static void ht_probe(hashtab h, const char *item) {
     }
     if (fit == myfit) {
       if (!havelock) {
-        fit = get_control(h, key);
+          fit = get_control(h, key, fit);
         havelock = true;
       }
       if (fit == myfit) {
