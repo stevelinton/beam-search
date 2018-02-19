@@ -182,7 +182,7 @@ beam_search(const char *seeds, int nseeds,
   probe_multi(current, seeds, nseeds);
   earlystop = false;
   for (int i = 0; i < ngens; i++) {
-    printf("GENERATION %i\n", i);
+      // printf("GENERATION %i\n", i);
     hashtab next = nextgen(current, visit_children, beamsize);
     free_ht(current);
     current = next;
