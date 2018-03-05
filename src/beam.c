@@ -68,7 +68,7 @@ static void ht_probe(hashtab h, const char *item) {
   void *tmp_item[2] = {alloca(h->data_size), alloca(h->data_size)};
   int nexttmp = 0;
   bool havelock = false;
-  //    printf("probing ");
+  // printf("probing ");
   // h->print_item(item);
   for (int i = 0; i < h->nprobes; i++) {
     key %= h->tabsize;
@@ -87,16 +87,16 @@ static void ht_probe(hashtab h, const char *item) {
         h->fitness[key] = myfit;
         //                printf("Unlocked %li %i %i\n",key,
         //                omp_get_thread_num(), myfit);
-        // printf(" into empty slot %i\n",i);
+        //  printf(" into empty slot %i\n",i);
         return;
       }
     }
-    if (fit < myfit) {
+    if (fit < myfit || ((i == h->nprobes-1) && fit == myfit )) {
       if (!havelock) {
           fit = get_control(h, key, fit);
         havelock = true;
       }
-      if (fit < myfit) {
+      if (fit < myfit || ((i == h->nprobes-1) && fit == myfit )) {
         __sync_synchronize();
         memcpy(tmp_item[nexttmp], h->data + h->data_size * key, h->data_size);
         memcpy(h->data + h->data_size * key, item, h->data_size);
@@ -108,8 +108,8 @@ static void ht_probe(hashtab h, const char *item) {
         myfit = fit;
         item = tmp_item[nexttmp];
         nexttmp ^= 1;
-        // printf(" swapped %i ",i);
-        // h->print_item(item);
+        //printf(" swapped %i ",i);
+        //h->print_item(item);
         key += key1;
         continue;
       }
@@ -122,7 +122,7 @@ static void ht_probe(hashtab h, const char *item) {
       if (fit == myfit) {
         __sync_synchronize();
         if (h->equal(item, h->data + h->data_size * key)) {
-          // printf(" dup %i\n",i);
+            // printf(" dup %i\n",i);
           h->fitness[key] = fit;
           // printf("Unlocked %li %i %i\n",key, omp_get_thread_num(), fit);
           return;
@@ -182,7 +182,7 @@ beam_search(const char *seeds, int nseeds,
   probe_multi(current, seeds, nseeds);
   earlystop = false;
   for (int i = 0; i < ngens; i++) {
-      // printf("GENERATION %i\n", i);
+      printf("GENERATION %i\n", i);
     hashtab next = nextgen(current, visit_children, beamsize);
     free_ht(current);
     current = next;
