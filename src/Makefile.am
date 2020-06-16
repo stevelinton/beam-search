@@ -1,4 +1,4 @@
-bin_PROGRAMS = addchain ascode aascode addchain2 addchain3 gf4 gf2 grease
+bin_PROGRAMS = addchain ascode aascode addchain2 addchain3 gf4 gf2 grease ternary
 
 AM_CFLAGS = -g -O3 $(OPENMP_CFLAGS)
 
@@ -11,3 +11,4 @@ aascode_SOURCES = aascode.c $(BEAM)
 grease_SOURCES = grease.c $(BEAM)
 gf4_SOURCES = gf4.c $(BEAM)
 gf2_SOURCES = gf2.c $(BEAM)
+ternary_SOURCES = ternary.c $(BEAM)

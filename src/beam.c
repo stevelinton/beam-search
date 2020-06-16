@@ -5,15 +5,15 @@
 #define cpu_relax() asm volatile("pause\n" : : : "memory")
 
 typedef struct s_hashtab {
-  uint32_t *fitness; 
-  char *data;
-  size_t data_size;
-  size_t tabsize;
-  uint32_t (*fitness_func)(const char *);
-  bool (*equal)(const char *, const char *);
-  uint64_t (*hash)(const char *);
-  uint64_t nprobes;
-  void (*print_item)(const char *);
+    uint32_t *fitness; 
+    char *data;
+    size_t data_size;
+    size_t tabsize;
+    uint32_t (*fitness_func)(const char *);
+    bool (*equal)(const char *, const char *);
+    uint64_t (*hash)(const char *);
+    uint64_t nprobes;
+    void (*print_item)(const char *);
 } * hashtab;
 
 static hashtab new_ht(size_t data_size, size_t tabsize,
@@ -160,10 +160,12 @@ static hashtab nextgen(const hashtab h,
                        int beamsize) {
   hashtab newtab = new_ht(h->data_size, beamsize, h->fitness_func, h->equal,
                           h->hash, h->nprobes, h->print_item);
-#pragma omp parallel for
+   #pragma omp parallel for
   for (int i = 0; i < h->tabsize; i++) {
     if (h->fitness[i] != 0) {
-      visit_children((char *)(h->data + h->data_size * i), visit, newtab);
+        //        h->print_item((char *)(h->data + h->data_size * i));
+        //        printf("\n");
+              visit_children((char *)(h->data + h->data_size * i), visit, newtab);
     }
   }
   return newtab;
