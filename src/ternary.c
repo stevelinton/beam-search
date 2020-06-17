@@ -4,6 +4,7 @@
 
 #define MAXMOVE 16
 
+
 typedef struct {
     bool isBin;
     uint8_t r1;
@@ -21,8 +22,10 @@ typedef struct {
 typedef struct s_node {
     uint8_t s; // number of states
     uint8_t r; // number of registers
+#ifdef TRACKMOVES
     uint8_t nmoves; // number of moves to get here
     move moves[MAXMOVE]; // record of those moves
+#endif
     state states[];
 } node;
 
@@ -39,7 +42,6 @@ static node *make_seed(coding *b, coding *c, int P) {
     node* seed = calloc(data_size,1);
     ((node *)seed)->s = b->size*c->size;
     ((node *)seed)->r = b->len+c->len;
-    ((node *)seed)->nmoves = 0;
     int k = 0;
     for (int i = 0; i < b->size; i++) {
         uint16_t r = b->codewords[i].regs << c->len;
@@ -135,9 +137,10 @@ static bool apply(node *c, const move *m) {
             }
         }
         c->s = j+1;
-
+#ifdef TRACKMOVES
         // record the move
         c->moves[c->nmoves++] = *m;
+#endif
         return true;
 }
 
@@ -231,6 +234,7 @@ static void print_node(const char *np) {
         states[j+1] = s;
     }
     print_coding_inner(n->s, n->r, states);
+#ifdef TRACKMOVES
     if (n->nmoves) {
         printf(" via");
         for (int i = 0; i < n->nmoves; i++) {
@@ -238,6 +242,7 @@ static void print_node(const char *np) {
             print_move(n->moves + i);
         }
     }
+#endif
 }
 
 
