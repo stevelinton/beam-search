@@ -1,7 +1,6 @@
 #include "beam.h"
 #include <stdio.h>
-
-#define P 5
+#include <ctype.h>
 
 #define MAXMOVE 16
 
@@ -20,46 +19,75 @@ typedef struct {
 } state;
 
 typedef struct s_node {
-    uint8_t s;
-    uint8_t r;
-    uint8_t nmoves;
-    move moves[MAXMOVE];
-    state states[P*P];
+    uint8_t s; // number of states
+    uint8_t r; // number of registers
+    uint8_t nmoves; // number of moves to get here
+    move moves[MAXMOVE]; // record of those moves
+    state states[];
 } node;
 
-#define data_size sizeof(struct s_node)
+typedef struct {
+    int len;
+    int size;
+    state codewords[];
+} coding;
+
+static int data_size;
+
+
+static node *make_seed(coding *b, coding *c, int P) {
+    node* seed = calloc(data_size,1);
+    ((node *)seed)->s = b->size*c->size;
+    ((node *)seed)->r = b->len+c->len;
+    ((node *)seed)->nmoves = 0;
+    int k = 0;
+    for (int i = 0; i < b->size; i++) {
+        uint16_t r = b->codewords[i].regs << c->len;
+        uint8_t s = b->codewords[i].res;
+        for (int j = 0; j < c->size; j++) {
+            ((node *)seed)->states[k].regs  = r | c->codewords[j].regs;
+            ((node *)seed)->states[k].res  = (s+c->codewords[j].res) % P;
+            k++;
+        }
+    }
+    return seed;
+}
+
+static int valreg, valstate;
 
 static uint32_t fitness(const char *cv) {
     node *n = (node *)cv;
-    if (n->s == P)
-        return stop_fitness;
-    return 10000 - 10*n->s - n->r;
+    return 1000000 - valstate*n->s - valreg*n->r;
 }
 
 
-static int ternary(uint8_t op, int in1, int in2, int in3) {
-    return (op & (1 << (in1 *4 + in2 * 2 + in3))) ? 1 : 0;
+int ternary(uint8_t op, int in1, int in2, int in3) {
+    return (op >> (in1 *4 + in2 * 2 + in3)) & 1;
 }
 
-static int binary(uint8_t op, int in1, int in2) {
-    return (op & (1 << (in1 *2 + in2))) ? 1 : 0;
+int binary(uint8_t op, int in1, int in2) {
+    return (op >> (in1 *2 + in2)) &1;
 }
 
+const static uint16_t mask1[16] = {0, 1, 3, 7, 15, 31, 63, 127,
+                      255, 511, 1023, 2047, 4095, 8191, 16383, 32767};
+const static uint16_t mask2[16] = {65534, 65532, 65528, 65520, 65504,
+                                   65472, 65408, 65280, 65024, 64512, 63488, 61440, 57344, 49152, 32768, 0 };                                   
 void drop(state *st, uint8_t bit) {
-    uint16_t l = st->regs & (1 << bit -1);
-    uint16_t r = st->regs & ~(2 << bit -1);
+    uint16_t l = st->regs & mask1[bit];
+    uint16_t r = st->regs & mask2[bit];
     st->regs = l | (r >> 1);
 }
 
 
 
-static void apply1(state *st, move *m, uint8_t nextreg) {
-    int in1 = (st->regs & (1 << m->r1)) >> m->r1;
-    int in2 = (st->regs & (1 << m->r2)) >> m->r2;
+void apply1(state *st, const move *m, uint8_t nextreg) {
+    int in1 = (st->regs >> m->r1) & 1;
+    int in2 = (st->regs >> m->r2) & 1;
     if (m->isBin) {
         st->regs |= (binary(m->op, in1, in2) << nextreg);
     } else {
-        int in3 = (st->regs & (1 << m->r3)) >> m->r3;
+        int in3 = (st->regs >> m->r3) & 1;
         st->regs |= (ternary(m->op, in1, in2, in3) << nextreg);
         if (m->drop &4)
             drop(st, m->r3);        
@@ -71,14 +99,17 @@ static void apply1(state *st, move *m, uint8_t nextreg) {
     return;
 }
 
-static bool apply(node *c, move *m) {
+const static int del2[4] = {1,0,0,-1};
+const static int del3[8] = {1,0,0,-1,0,-1,-1,-2};
+
+static bool apply(node *c, const move *m) {
         for (int i = 0; i < c->s; i++)
             apply1(&(c->states[i]), m, c->r);
         // adjust number of registers
         if (m->isBin)
-            c ->r += 1 - (m->drop &1) -((m->drop & 2) >> 1);
+            c ->r += del2[m->drop];
         else
-            c->r += 1 - (m->drop & 1) - ((m->drop & 2) >>1) - ((m->drop & 4)>>2);
+            c->r += del3[m->drop];
         // insertion sort the states
         for (int i = 1; i < c->s; i++) {
             state s = c->states[i];
@@ -128,23 +159,88 @@ uint8_t BinaryOps []  = {
 const int nterns =sizeof(TernaryOps);
 const int nbins =sizeof(BinaryOps);
 
-static void print_node(const char *i) {
-    const node *n = (node *) i;
-    printf("<node %i %i:",(int)n->r, (int) n->s);
-    for (int j = 0; j < n->s; j++)
-        printf(" 0x%hx->%i",n->states[j].regs, (int)n->states[j].res);
-    printf(">");
+void print_coding_inner(int nstates, int len, state *states) {
+    int i = 0;
+    int lastres;
+    int started = 0;
+    while (i < nstates) {
+        if (started) {
+            if (states[i].res != lastres) {
+                lastres = states[i].res;
+                printf(") %i(", lastres);
+            } else
+                printf(", ");
+        } else {
+            lastres = states[i].res;
+            started = 1;
+            printf("%i(",lastres);
+        }
+        for (int j = len-1; j >= 0; j--)
+            printf("%c", (states[i].regs & (1 <<j)) ? '1':'0');
+        i++;            
+    }
+    printf(")");
 }
 
-static void print_move(move *m) {
+void print_coding(coding *c) {
+    print_coding_inner(c->size, c->len, c->codewords);    
+}
+
+static void print_move(const move *m) {
     if (m->isBin) {
-        printf("<move binop 0x%x regs %i %i drop 0x%x>",
-               (int)m->op, (int)m->r1, (int)m->r2, (int)m->drop);
+        printf("b0x%x(%i,%i);",
+               (int)m->op, (int)m->r1, (int)m->r2);
     } else {
-        printf("<move ternop 0x%x regs %i %i %i drop 0x%x>",
-               (int)m->op, (int)m->r1, (int)m->r2, (int)m->r3, (int)m->drop);
+        printf("t0x%x(%i,%i,%i);",
+               (int)m->op, (int)m->r1, (int)m->r2, (int)m->r3);        
+    }
+    if (m->drop != 0) {
+        int started = 0;
+        printf(" drop(");
+        if (m->drop & 1) {
+            printf("%i",m->r1);
+            started = 1;
+        }
+        if (m->drop &2) {
+            if (started)
+                printf(",");
+            printf("%i",m->r2);
+            started = 1;
+        }
+        if (m->drop &4) {
+            if (started)
+                printf(",");
+            printf("%i",m->r3);
+        }
+        printf(");");
     }
 }
+
+static void print_node(const char *np) {
+    const node *n = (node *) np;
+    state states[n->s];
+    memcpy(states, n->states, sizeof(state)*n->s);
+    for (int i = 1; i < n->s; i++) {
+        state s = states[i];
+       int j = i-1;
+        while (states[j].res > s.res ||
+               (states[j].res == s.res && states[j].regs > s.regs)) {
+            states[j+1] = states[j];
+            j--;
+        }
+        states[j+1] = s;
+    }
+    print_coding_inner(n->s, n->r, states);
+    if (n->nmoves) {
+        printf(" via");
+        for (int i = 0; i < n->nmoves; i++) {
+            printf(" ");
+            print_move(n->moves + i);
+        }
+    }
+}
+
+
 
 
 static void visit_children(const char *parent, void visit(const char *, void *), void *context) {
@@ -152,7 +248,7 @@ static void visit_children(const char *parent, void visit(const char *, void *),
     /*    printf("VC ");
     print_node((const char *)n);
     printf("\n"); */
-    node *ch = malloc(sizeof(node));
+    node *ch = malloc(data_size);
     move m;
     for (int i = 0; i < n->r-2; i++) {
         m.r1 = i;
@@ -163,7 +259,7 @@ static void visit_children(const char *parent, void visit(const char *, void *),
                 m.op = BinaryOps[op];
                 for (int drop = 0; drop < 4; drop ++) {
                     m.drop = drop;
-                    memcpy(ch, n, sizeof(node));
+                    memcpy(ch, n, data_size);
                         if (apply(ch, &m)) {
                             /*    printf("MOVE ");
                                   print_move (&m);                            
@@ -181,7 +277,7 @@ static void visit_children(const char *parent, void visit(const char *, void *),
                     m.op = TernaryOps[op];
                     for (int drop =0; drop < 8; drop ++) {
                         m.drop = drop;
-                        memcpy(ch, n, sizeof(node));
+                        memcpy(ch, n, data_size);
                         if (apply(ch, &m)) {
                             /*    printf("MOVE ");
                                   print_move (&m);                            
@@ -199,7 +295,11 @@ static void visit_children(const char *parent, void visit(const char *, void *),
 }
 
 static bool equal(const char *a1, const char *a2) {
-    return (0 == strncmp(a1,a2,data_size));
+    node *n1 = (node *)a1;
+    node *n2 = (node *)a2;
+    return n1->r == n2->r &&
+        n1->s == n2->s &&
+        !memcmp((void *)n1->states, (void *)n2->states, sizeof(state)*n1->s);
 }
 
 #define fnvp 1099511628211ULL
@@ -217,67 +317,114 @@ static uint64_t hash( const char *c) {
     return h;    
 }
 
-#if (P==3)
-#define codelen 2
-int codes[P] = {3,1,2};
-#else
-#define codelen 4
-//int codes[P] = {0,1,2,3,4};
-int codes[P] = {0,3,6,9,12};
-#endif
-           
+int fgetc1(FILE *f) {
+    int c;
+    while (isspace(c = fgetc(f)))
+        ;
+    return c;
+}
+
+coding *read_coding(const char *fn) {
+    FILE *f = fopen(fn, "r");
+    if (!f)
+        return NULL;
+    coding *c = calloc(sizeof(coding) + sizeof(state)*256,1);
+    int len = 0;
+    int size = 0;
+    int res;
+    while (1) {
+        if (1 != fscanf(f,"%i", &res))
+            break;
+        int ch = fgetc1(f);
+        if (ch != '(') {
+            return NULL;
+        }
+        uint16_t wd;
+        int thislen;
+        while (1) {
+            wd = 0;
+            thislen = 0;
+            while (1) {
+                ch = fgetc1(f);
+                if (ch == '0' || ch == '1') {
+                    wd <<= 1;
+                    if (ch == '1')
+                        wd++;
+                    thislen++;
+                } else if (ch == ',' || ch == ')') {
+                    c->codewords[size].regs = wd;
+                    c->codewords[size].res = res;
+                    size++;
+                    if (len == 0) {
+                        len = thislen;                        
+                    } else if (len != thislen) {
+                        return NULL;
+                    }
+                    break;
+                } else
+                    return NULL;
+            }
+            if (ch == ')') {
+                break;
+            }
+        }
+    }
+    c->len = len;
+    c->size = size;
+    fclose(f);
+    return c;
+}
+
+int read_params(const char *fn, int *P, int *steps,  int *valreg, int *valstate, int *beamsize, int *maxval) {
+    FILE *f = fopen(fn, "r");
+    if (!f || 6 != fscanf(f, "%i%i%i%i%i%i", P, steps, valreg, valstate, beamsize, maxval))
+        return 0;
+    fclose(f);
+    return 1;
+}
 
 int main(int argc, char **argv) {
-    int beamsize = 50000;
+    int beamsize;
     int nprobes = 4;
-    char * seed = malloc(data_size);
-    memset(seed, 0, data_size);
-    ((node *)seed)->s = P*P;
-    ((node *)seed)->r = 2*codelen;
-    ((node *)seed)->nmoves = 0;
-    for (int i = 0; i < P; i++)
-        for (int j = 0; j < P; j++) {
-            ((node *)seed)->states[P*i+j].regs  = (codes[i]<<codelen) | codes[j];
-            ((node *)seed)->states[P*i+j].res  = (i+j)%P;
-        }
     int nresults;
-    char * results = beam_search(seed,1,visit_children, beamsize, MAXMOVE,
-                                 data_size,  fitness, equal, hash, nprobes, print_node, &nresults);
-    const char *winner  = NULL;
-    const char *bestnode = NULL;
-    int bestfit = 0;
-    for (int i = 0; i < nresults; i++) {
-        const char *c = results + i*data_size;
-        int f = fitness(c);
-        if (f == stop_fitness) {
-            winner = c;
-            break;
-        } else if (f > bestfit) {
-            bestnode = c;
-            bestfit = f;
-        }
-    }
-    if (!winner) {
-        printf("No solution found\n");
-        printf("Final beam size %i\nBest fitness %i\n",nresults, bestfit);
-        print_node(bestnode);
-        printf("\n");
+    int steps;
+    int maxval;
+    int P;
+    if (argc < 4) {
+        printf("Usage: ternary <b-code> <c-code> <params>\n");
         exit(EXIT_FAILURE);
     }
-    printf("solution found\n");
-    node *n = malloc(sizeof(node));
-    memcpy(n, seed, sizeof(node));
-    print_node(seed);
-    printf("\n");
-    for (int i = 0; i < ((node *)winner)->nmoves; i++) {
-        move *m = ((node *)winner)->moves + i;
-        print_move(m);
-        printf(" -> ");
-        apply(n,m);
-        print_node((char *)n);
+    coding *b = read_coding(argv[1]);
+    if(b) {
+        printf("B coding:");
+        print_coding(b);
         printf("\n");
     }
-        
-    
+    coding *c = read_coding(argv[2]);
+    if (c) {
+        printf("C coding:");
+        print_coding(c);
+        printf("\n");
+    }
+    if (!b || !c || !read_params(argv[3], &P, &steps, &valreg, &valstate, &beamsize, &maxval)) {
+        printf("Error reading files\n");
+        exit(EXIT_FAILURE);
+    }
+    data_size = sizeof(node) + sizeof(state)*b->size*c->size;
+    printf("Parameters: %i %i %i %i %i %i\n", P, steps, valreg, valstate, beamsize,maxval);
+    node *seed = make_seed(b,c,P);
+    printf("Starting search at ");
+    print_node((char *)seed);
+    printf("\n");
+    char * results = beam_search((char *)seed,1,visit_children, beamsize, steps,
+                                 data_size,  fitness, equal, hash, nprobes, print_node, &nresults);
+    for (int i = 0; i < nresults; i++) {
+        const char *n = results + i*data_size;
+        int f = fitness(n);
+        if (f >= 1000000 - maxval) {
+            print_node(n);
+            printf("\n");            
+        }
+    }
     exit(EXIT_SUCCESS);
 }
