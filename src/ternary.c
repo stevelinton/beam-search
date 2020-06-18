@@ -3,7 +3,7 @@
 #include <ctype.h>
 
 #define MAXMOVE 16
-
+// #define USE_SAM
 
 typedef struct {
     bool isBin;
@@ -104,6 +104,56 @@ void apply1(state *st, const move *m, uint8_t nextreg) {
 const static int del2[4] = {1,0,0,-1};
 const static int del3[8] = {1,0,0,-1,0,-1,-1,-2};
 
+// returns number of states remaining, or -1 if contradiction found 
+int sort_and_merge_states (state *states, int nstates) {
+    if (nstates == 0)
+        return 0;
+    int newstates = 1;
+    for (int i = 1; i < nstates; i++) {
+        state s = states[i];
+        uint16_t x = s.regs;
+        int lo = 0;
+        int hi = newstates-1;
+        int merged = 0;
+        while (hi >= lo) {
+            int mid = (lo + hi)/2;
+            uint16_t y = states[mid].regs;
+            if (x == y) {
+                if (s.res != states[mid].res)
+                    return -1;
+                merged = 1;
+                break;
+            }
+            if (x > y)
+                lo = mid+1;
+            else if (x < y)
+                hi = mid -1;
+        }
+        if (!merged) {
+            memmove(states+hi+2,states+hi+1, sizeof(state)*(newstates -hi-1));
+            newstates++;
+            states[hi+1] = s;
+        }
+    }
+    return newstates;
+}
+
+static void sortstates(state *states, int nstates) {
+    // insertion sort the states
+    for (int i = 1; i < nstates; i++) {
+        state s = states[i];
+        uint16_t x = s.regs;
+        int j;
+        for (j = i-1; j >= 0; j--) {
+            uint16_t y = states[j].regs;
+            if (y > x) {
+                states[j+1] = states[j];
+            } else break;
+        }
+        states[j+1] = s;
+    }
+}
+
 static bool apply(node *c, const move *m) {
         for (int i = 0; i < c->s; i++)
             apply1(&(c->states[i]), m, c->r);
@@ -112,20 +162,12 @@ static bool apply(node *c, const move *m) {
             c ->r += del2[m->drop];
         else
             c->r += del3[m->drop];
-        // insertion sort the states
-        for (int i = 1; i < c->s; i++) {
-            state s = c->states[i];
-            uint16_t x = s.regs;
-            int j;
-            for (j = i-1; j >= 0; j--) {
-                uint16_t y = c->states[j].regs;
-                if (y > x) {
-                    c->states[j+1] = c->states[j];
-                } else break;
-            }
-            c->states[j+1] = s;
-        }
-        // check for duplicate states, or incompatible states
+#ifdef USE_SAM
+        c->s = sort_and_merge_states(c->states, c->s);
+        if (c->s == (uint8_t)(-1))
+            return false;
+#else
+        sortstates(c->states, c->s);
         int j = 0;
         for (int i = 1; i < c->s; i++) {
             if (c->states[i].regs == c->states[j].regs) {
@@ -137,6 +179,7 @@ static bool apply(node *c, const move *m) {
             }
         }
         c->s = j+1;
+#endif
 #ifdef TRACKMOVES
         // record the move
         c->moves[c->nmoves++] = *m;
@@ -265,13 +308,13 @@ static void visit_children(const char *parent, void visit(const char *, void *),
                 for (int drop = 0; drop < 4; drop ++) {
                     m.drop = drop;
                     memcpy(ch, n, data_size);
-                        if (apply(ch, &m)) {
-                            /*    printf("MOVE ");
-                                  print_move (&m);                            
-                                  printf(" CHILD ");
-                                  print_node((const char *)ch);
-                                  printf("\n");  */
-                            (*visit)((char *)ch, context);
+                    if (apply(ch, &m)) {
+                        /*            printf("MOVE ");
+                              print_move (&m);                            
+                              printf(" CHILD ");
+                              print_node((const char *)ch);
+                              printf("\n");  */
+                        (*visit)((char *)ch, context);
                         }
                 }
             }
@@ -284,11 +327,11 @@ static void visit_children(const char *parent, void visit(const char *, void *),
                         m.drop = drop;
                         memcpy(ch, n, data_size);
                         if (apply(ch, &m)) {
-                            /*    printf("MOVE ");
+                            /*                                printf("MOVE ");
                                   print_move (&m);                            
                                   printf(" CHILD ");
                                   print_node((const char *)ch);
-                                  printf("\n");  */
+                                  printf("\n");   */
                             (*visit)((char *)ch, context);
                         }
                     }
