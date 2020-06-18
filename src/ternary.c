@@ -3,7 +3,13 @@
 #include <ctype.h>
 
 #define MAXMOVE 16
-// #define USE_SAM
+
+typedef uint16_t regs_t;
+typedef uint16_t res_t;
+typedef uint8_t nstates_t;
+#define NREGS 8*sizeof(regs_t)
+#define FAIL 0xFF
+
 
 typedef struct {
     bool isBin;
@@ -15,12 +21,12 @@ typedef struct {
 } move;
 
 typedef struct {
-    uint16_t regs;
-    uint8_t res;
+    regs_t regs;
+    res_t res;
 } state;
 
 typedef struct s_node {
-    uint8_t s; // number of states
+    nstates_t s; // number of states
     uint8_t r; // number of registers
 #ifdef TRACKMOVES
     uint8_t nmoves; // number of moves to get here
@@ -44,8 +50,8 @@ static node *make_seed(coding *b, coding *c, int P) {
     ((node *)seed)->r = b->len+c->len;
     int k = 0;
     for (int i = 0; i < b->size; i++) {
-        uint16_t r = b->codewords[i].regs << c->len;
-        uint8_t s = b->codewords[i].res;
+        regs_t r = b->codewords[i].regs >> c->len;
+        res_t s = b->codewords[i].res;
         for (int j = 0; j < c->size; j++) {
             ((node *)seed)->states[k].regs  = r | c->codewords[j].regs;
             ((node *)seed)->states[k].res  = (s+c->codewords[j].res) % P;
@@ -64,33 +70,49 @@ static uint32_t fitness(const char *cv) {
 
 
 int ternary(uint8_t op, int in1, int in2, int in3) {
-    return (op >> (in1 *4 + in2 * 2 + in3)) & 1;
+    return (op >> ((((in1 <<1)  +  in2) << 1) + in3)) & 1;
 }
 
 int binary(uint8_t op, int in1, int in2) {
-    return (op >> (in1 *2 + in2)) &1;
+    return (op >> ((in1<<1) + in2)) &1;
 }
 
-const static uint16_t mask1[16] = {0, 1, 3, 7, 15, 31, 63, 127,
-                      255, 511, 1023, 2047, 4095, 8191, 16383, 32767};
-const static uint16_t mask2[16] = {65534, 65532, 65528, 65520, 65504,
-                                   65472, 65408, 65280, 65024, 64512, 63488, 61440, 57344, 49152, 32768, 0 };                                   
-void drop(state *st, uint8_t bit) {
-    uint16_t l = st->regs & mask1[bit];
-    uint16_t r = st->regs & mask2[bit];
-    st->regs = l | (r >> 1);
+const static regs_t mask1[16] = {
+                                   32767, 16383, 8191, 4095, 
+                                   2047, 1023, 511, 255, 
+                                   127, 63, 31, 15, 
+                                   7, 3, 1, 0, 
+};
+const static regs_t mask2[16] = {
+                                   0, 32768, 49152, 57344, 
+                                   61440, 63488, 64512, 65024, 
+                                   65280, 65408, 65472, 65504, 
+                                   65520, 65528, 65532, 65534, 
+};
+
+void drop(state *st, uint8_t pos) {
+    regs_t l = st->regs & mask1[pos];
+    regs_t r = st->regs & mask2[pos];
+    st->regs = r | (l << 1);
 }
 
 
+static int reg_extract(regs_t r, int pos) {
+    return (r >> (NREGS-1-pos)) & 1;
+}
+
+static void reg_set(regs_t *r, int pos, int val) {
+    *r |= (val << (NREGS-1-pos));
+}
 
 void apply1(state *st, const move *m, uint8_t nextreg) {
-    int in1 = (st->regs >> m->r1) & 1;
-    int in2 = (st->regs >> m->r2) & 1;
+    int in1 = reg_extract(st->regs, m->r1);
+    int in2 = reg_extract(st->regs, m->r2);
     if (m->isBin) {
-        st->regs |= (binary(m->op, in1, in2) << nextreg);
+        reg_set(&(st->regs), nextreg, binary(m->op, in1, in2));
     } else {
-        int in3 = (st->regs >> m->r3) & 1;
-        st->regs |= (ternary(m->op, in1, in2, in3) << nextreg);
+        int in3 = reg_extract(st->regs, m->r3);
+        reg_set(&(st->regs), nextreg, ternary(m->op, in1, in2, in3));
         if (m->drop &4)
             drop(st, m->r3);        
     }
@@ -104,33 +126,37 @@ void apply1(state *st, const move *m, uint8_t nextreg) {
 const static int del2[4] = {1,0,0,-1};
 const static int del3[8] = {1,0,0,-1,0,-1,-1,-2};
 
-// returns number of states remaining, or -1 if contradiction found 
-int sort_and_merge_states (state *states, int nstates) {
+
+
+// returns number of states remaining, or FAIL
+nstates_t sort_and_merge_states (state *states, nstates_t nstates) {
     if (nstates == 0)
-        return 0;
-    int newstates = 1;
+        return 0;    
+    nstates_t newstates = 1;
     for (int i = 1; i < nstates; i++) {
         state s = states[i];
-        uint16_t x = s.regs;
+        regs_t x = s.regs;
         int lo = 0;
         int hi = newstates-1;
         int merged = 0;
         while (hi >= lo) {
             int mid = (lo + hi)/2;
-            uint16_t y = states[mid].regs;
+            regs_t y = states[mid].regs;
             if (x == y) {
                 if (s.res != states[mid].res)
-                    return -1;
+                    return FAIL;
                 merged = 1;
                 break;
             }
             if (x > y)
                 lo = mid+1;
-            else if (x < y)
-                hi = mid -1;
+            else
+                hi = mid-1;
         }
         if (!merged) {
-            memmove(states+hi+2,states+hi+1, sizeof(state)*(newstates -hi-1));
+            for (int j = newstates-1; j > hi; j--) {
+                states[j+1] = states[j];
+            }
             newstates++;
             states[hi+1] = s;
         }
@@ -138,53 +164,27 @@ int sort_and_merge_states (state *states, int nstates) {
     return newstates;
 }
 
-static void sortstates(state *states, int nstates) {
-    // insertion sort the states
-    for (int i = 1; i < nstates; i++) {
-        state s = states[i];
-        uint16_t x = s.regs;
-        int j;
-        for (j = i-1; j >= 0; j--) {
-            uint16_t y = states[j].regs;
-            if (y > x) {
-                states[j+1] = states[j];
-            } else break;
-        }
-        states[j+1] = s;
-    }
-}
 
 static bool apply(node *c, const move *m) {
-        for (int i = 0; i < c->s; i++)
-            apply1(&(c->states[i]), m, c->r);
-        // adjust number of registers
-        if (m->isBin)
-            c ->r += del2[m->drop];
-        else
-            c->r += del3[m->drop];
-#ifdef USE_SAM
-        c->s = sort_and_merge_states(c->states, c->s);
-        if (c->s == (uint8_t)(-1))
-            return false;
-#else
-        sortstates(c->states, c->s);
-        int j = 0;
-        for (int i = 1; i < c->s; i++) {
-            if (c->states[i].regs == c->states[j].regs) {
-                if (c->states[i].res != c->states[j].res) {
-                    return false;
-                }
-            } else {
-                c->states[++j] = c->states[i];
-            }
-        }
-        c->s = j+1;
-#endif
+    if (c->r >= NREGS) {
+        printf("Register overflow\n");
+        abort();
+    }
+    for (int i = 0; i < c->s; i++)
+        apply1(&(c->states[i]), m, c->r);
+    // adjust number of registers
+    if (m->isBin)
+        c ->r += del2[m->drop];
+    else
+        c->r += del3[m->drop];
+    c->s = sort_and_merge_states(c->states, c->s);
+    if (c->s == FAIL)
+        return false;
 #ifdef TRACKMOVES
-        // record the move
-        c->moves[c->nmoves++] = *m;
+    // record the move
+    c->moves[c->nmoves++] = *m;
 #endif
-        return true;
+    return true;
 }
 
 // must take 000->0 so LSB is zero
@@ -222,7 +222,7 @@ void print_coding_inner(int nstates, int len, state *states) {
             printf("%i(",lastres);
         }
         for (int j = len-1; j >= 0; j--)
-            printf("%c", (states[i].regs & (1 <<j)) ? '1':'0');
+            printf("%c", reg_extract(states[i].regs, j) ? '1':'0');
         i++;            
     }
     printf(")");
@@ -293,9 +293,11 @@ static void print_node(const char *np) {
 
 static void visit_children(const char *parent, void visit(const char *, void *), void *context) {
     node *n = (node *)parent;
-    /*    printf("VC ");
+#ifdef DEBUG
+    printf("VC ");
     print_node((const char *)n);
-    printf("\n"); */
+    printf("\n"); 
+#endif
     node *ch = malloc(data_size);
     move m;
     for (int i = 0; i < n->r-2; i++) {
@@ -309,11 +311,13 @@ static void visit_children(const char *parent, void visit(const char *, void *),
                     m.drop = drop;
                     memcpy(ch, n, data_size);
                     if (apply(ch, &m)) {
-                        /*            printf("MOVE ");
-                              print_move (&m);                            
-                              printf(" CHILD ");
-                              print_node((const char *)ch);
-                              printf("\n");  */
+#ifdef DEBUG
+                        printf("MOVE ");
+                        print_move (&m);                            
+                        printf(" CHILD ");
+                        print_node((const char *)ch);
+                        printf("\n");
+#endif
                         (*visit)((char *)ch, context);
                         }
                 }
@@ -327,11 +331,13 @@ static void visit_children(const char *parent, void visit(const char *, void *),
                         m.drop = drop;
                         memcpy(ch, n, data_size);
                         if (apply(ch, &m)) {
-                            /*                                printf("MOVE ");
-                                  print_move (&m);                            
-                                  printf(" CHILD ");
-                                  print_node((const char *)ch);
-                                  printf("\n");   */
+#ifdef DEBUG
+                            printf("MOVE ");
+                            print_move (&m);                            
+                            printf(" CHILD ");
+                            print_node((const char *)ch);
+                            printf("\n");
+#endif
                             (*visit)((char *)ch, context);
                         }
                     }
@@ -395,9 +401,9 @@ coding *read_coding(const char *fn) {
             while (1) {
                 ch = fgetc1(f);
                 if (ch == '0' || ch == '1') {
-                    wd <<= 1;
+                    wd >>= 1;
                     if (ch == '1')
-                        wd++;
+                        wd |= 0x8000;
                     thislen++;
                 } else if (ch == ',' || ch == ')') {
                     c->codewords[size].regs = wd;
