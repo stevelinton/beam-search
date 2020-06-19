@@ -13,7 +13,7 @@ typedef uint8_t nstates_t;
 
 
 typedef struct {
-    bool isBin;
+    uint8_t arity;
     uint8_t r1;
     uint8_t r2;
     uint8_t r3;
@@ -55,11 +55,11 @@ static uint32_t fitness(const char *cv) {
 
 
 int ternary(uint8_t op, int in1, int in2, int in3) {
-    return (op >> ((((in1 <<1)  +  in2) << 1) + in3)) & 1;
+    return (op >>  (in1 | in2 | in3)) & 1;
 }
 
 int binary(uint8_t op, int in1, int in2) {
-    return (op >> ((in1<<1) + in2)) &1;
+    return (op >> (in1 | in2)) &1;
 }
 
 const static regs_t mask1[16] = {
@@ -81,9 +81,12 @@ void drop(state *st, uint8_t pos) {
     st->regs = r | (l << 1);
 }
 
+int reg_extract_topos(regs_t r, int pos, int to) {
+    return ((r << pos)>> (NREGS-1-to)) & (1 << to);
+}
 
 int reg_extract(regs_t r, int pos) {
-    return ((r << pos)>> (NREGS-1)) & 1;
+    return reg_extract_topos(r,pos,0);
 }
 
 void reg_set(regs_t *r, int pos, int val) {
@@ -91,20 +94,38 @@ void reg_set(regs_t *r, int pos, int val) {
 }
 
 void apply1(state *st, const move *m, uint8_t nextreg) {
-    int in1 = reg_extract(st->regs, m->r1);
-    int in2 = reg_extract(st->regs, m->r2);
-    if (m->isBin) {
+    int in1, in2, in3;
+    switch(m->arity) {
+    case 1:
+        in1 = reg_extract(st->regs, m->r1);
+        reg_set(&(st->regs), nextreg, !in1);
+        if (m->drop & 1)
+            drop(st, m->r1);
+        break;
+
+    case 2:
+        in1 = reg_extract_topos(st->regs, m->r1,1);
+        in2 = reg_extract(st->regs, m->r2);
         reg_set(&(st->regs), nextreg, binary(m->op, in1, in2));
-    } else {
-        int in3 = reg_extract(st->regs, m->r3);
+        if (m->drop & 2)
+            drop(st, m->r2);
+        if (m->drop & 1)
+            drop(st, m->r1);
+        break;
+
+    case 3:
+        in1 = reg_extract_topos(st->regs, m->r1,2);
+        in2 = reg_extract_topos(st->regs, m->r2,1);
+        in3 = reg_extract(st->regs, m->r3);
         reg_set(&(st->regs), nextreg, ternary(m->op, in1, in2, in3));
         if (m->drop &4)
             drop(st, m->r3);        
+        if (m->drop & 2)
+            drop(st, m->r2);
+        if (m->drop & 1)
+            drop(st, m->r1);
+        break;
     }
-    if (m->drop & 2)
-        drop(st, m->r2);
-    if (m->drop & 1)
-        drop(st, m->r1);
     return;
 }
 
@@ -158,10 +179,17 @@ static bool apply(node *c, const move *m) {
     for (int i = 0; i < c->s; i++)
         apply1(&(c->states[i]), m, c->r);
     // adjust number of registers
-    if (m->isBin)
+    switch(m->arity) {
+    case 1:
+        c->r += 1-m->drop;
+        break;
+    case 2:
         c ->r += del2[m->drop];
-    else
+        break;
+    case 3:
         c->r += del3[m->drop];
+        break;
+    }
     if (m->drop) {
         c->s = sort_and_merge_states(c->states, c->s);
         if (c->s == FAIL)
@@ -178,8 +206,6 @@ static bool apply(node *c, const move *m) {
 //
 // Reps under permutation of inputs
 // Unary functions omitted 
-
-uint8_t UnaryOps [] = {1}; // NOT
 
 uint8_t TernaryOps [] = {
     2, 4, 6, 8, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 38, 40, 42, 44, 46, 50, 52, 54, 56, 58, 62, 64, 66, 70, 72, 74, 76, 78, 82, 
@@ -222,12 +248,18 @@ void print_coding(coding *c) {
 }
 
 static void print_move(const move *m) {
-    if (m->isBin) {
+    switch(m->arity) {
+    case 1:
+        printf("not(%i);",(int)m->r1);
+        break;
+    case 2:
         printf("b0x%x(%i,%i);",
                (int)m->op, (int)m->r1, (int)m->r2);
-    } else {
+        break;
+    case 3:
         printf("t0x%x(%i,%i,%i);",
-               (int)m->op, (int)m->r1, (int)m->r2, (int)m->r3);        
+               (int)m->op, (int)m->r1, (int)m->r2, (int)m->r3);
+        break;
     }
     if (m->drop != 0) {
         int started = 0;
@@ -291,9 +323,26 @@ static void visit_children(const char *parent, void visit(const char *, void *),
     move m;
     for (int i = 0; i < n->r-2; i++) {
         m.r1 = i;
+#ifdef BINARY
+        m.arity = 1;
+        m.op = 1;
+        for (int drop = 0; drop < 2; drop++) {
+            m.drop = drop;
+            memcpy(ch, n, data_size);
+            if (apply(ch, &m)) {
+#ifdef DEBUG
+                printf("MOVE ");
+                print_move (&m);                            
+                printf(" CHILD ");
+                print_node((const char *)ch);
+                printf("\n");
+#endif
+                (*visit)((char *)ch, context);
+            }
+#endif
         for (int j = i+1; j < n->r; j++) {
+            m.arity = 2;
             m.r2 = j;
-            m.isBin = true;
             for (int op = 0; op < nbins; op++) {
                 m.op = BinaryOps[op];
                 for (int drop = 0; drop < 4; drop ++) {
@@ -311,7 +360,8 @@ static void visit_children(const char *parent, void visit(const char *, void *),
                         }
                 }
             }
-            m.isBin = false;
+#ifndef BINARY
+            m.arity = 3;
             for (int k = j+1; k < n->r; k++) {
                 m.r3 = k;
                 for (int op = 0; op < nterns; op++) {
@@ -332,6 +382,7 @@ static void visit_children(const char *parent, void visit(const char *, void *),
                     }
                 }
             }
+#endif
         }
     }
     free(ch);
