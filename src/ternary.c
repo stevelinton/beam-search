@@ -97,12 +97,12 @@ void drop(state *st, uint8_t pos) {
 }
 
 
-static int reg_extract(regs_t r, int pos) {
-    return (r >> (NREGS-1-pos)) & 1;
+int reg_extract(regs_t r, int pos) {
+    return ((r << pos)>> (NREGS-1)) & 1;
 }
 
-static void reg_set(regs_t *r, int pos, int val) {
-    *r |= (val << (NREGS-1-pos));
+void reg_set(regs_t *r, int pos, int val) {
+    *r |= ((val << (NREGS-1)) >> pos);
 }
 
 void apply1(state *st, const move *m, uint8_t nextreg) {
@@ -177,9 +177,11 @@ static bool apply(node *c, const move *m) {
         c ->r += del2[m->drop];
     else
         c->r += del3[m->drop];
-    c->s = sort_and_merge_states(c->states, c->s);
-    if (c->s == FAIL)
-        return false;
+    if (m->drop) {
+        c->s = sort_and_merge_states(c->states, c->s);
+        if (c->s == FAIL)
+            return false;
+    }
 #ifdef TRACKMOVES
     // record the move
     c->moves[c->nmoves++] = *m;
