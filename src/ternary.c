@@ -44,22 +44,6 @@ typedef struct {
 static int data_size;
 
 
-static node *make_seed(coding *b, coding *c, int P) {
-    node* seed = calloc(data_size,1);
-    ((node *)seed)->s = b->size*c->size;
-    ((node *)seed)->r = b->len+c->len;
-    int k = 0;
-    for (int i = 0; i < b->size; i++) {
-        regs_t r = b->codewords[i].regs >> c->len;
-        res_t s = b->codewords[i].res;
-        for (int j = 0; j < c->size; j++) {
-            ((node *)seed)->states[k].regs  = r | c->codewords[j].regs;
-            ((node *)seed)->states[k].res  = (s+c->codewords[j].res) % P;
-            k++;
-        }
-    }
-    return seed;
-}
 
 static int valreg, valstate;
 
@@ -438,6 +422,29 @@ int read_params(const char *fn, int *P, int *steps,  int *valreg, int *valstate,
     fclose(f);
     return 1;
 }
+
+static node *make_seed(coding *b, coding *c, int P) {
+    node* seed = calloc(data_size,1);
+    seed->s = b->size*c->size;
+    seed->r = b->len+c->len;
+    int k = 0;
+    for (int i = 0; i < b->size; i++) {
+        regs_t r = b->codewords[i].regs >> c->len;
+        res_t s = b->codewords[i].res;
+        for (int j = 0; j < c->size; j++) {
+            seed->states[k].regs  = r | c->codewords[j].regs;
+            seed->states[k].res  = (s+c->codewords[j].res) % P;
+            k++;
+        }
+    }
+    seed->s = sort_and_merge_states(seed->states, seed->s);
+    if (seed->s == FAIL) {
+        printf("Contradiction found in seed state\n");
+        exit(EXIT_FAILURE);
+    }
+    return seed;
+}
+    
 
 int main(int argc, char **argv) {
     int beamsize;
