@@ -8,7 +8,8 @@ typedef uint16_t regs_t;
 typedef uint16_t res_t;
 typedef uint8_t nstates_t;
 #define NREGS 8*sizeof(regs_t)
-#define FAIL 0xFF
+#define MAXSTATES (1<<(8*sizeof(nstates_t)))
+#define FAIL (MAXSTATES -1)
 
 
 typedef struct {
@@ -152,7 +153,7 @@ nstates_t sort_and_merge_states (state *states, nstates_t nstates) {
 static bool apply(node *c, const move *m) {
     if (c->r >= NREGS) {
         printf("Register overflow\n");
-        abort();
+        return false;
     }
     for (int i = 0; i < c->s; i++)
         apply1(&(c->states[i]), m, c->r);
@@ -177,6 +178,8 @@ static bool apply(node *c, const move *m) {
 //
 // Reps under permutation of inputs
 // Unary functions omitted 
+
+uint8_t UnaryOps [] = {1}; // NOT
 
 uint8_t TernaryOps [] = {
     2, 4, 6, 8, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 38, 40, 42, 44, 46, 50, 52, 54, 56, 58, 62, 64, 66, 70, 72, 74, 76, 78, 82, 
@@ -424,6 +427,10 @@ int read_params(const char *fn, int *P, int *steps,  int *valreg, int *valstate,
 }
 
 static node *make_seed(coding *b, coding *c, int P) {
+    if (b->size*c->size > MAXSTATES) {
+        printf("Too many states\n");
+        exit(EXIT_FAILURE);
+    }
     node* seed = calloc(data_size,1);
     seed->s = b->size*c->size;
     seed->r = b->len+c->len;
