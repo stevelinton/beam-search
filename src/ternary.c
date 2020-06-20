@@ -207,17 +207,21 @@ static inline node *ind(node *arr, int i) {
     return (node *)(((char *)arr)+i*data_size);
 }
 
-static uint8_t makefrom(node *o, int i, int j, int d) {
-    memcpy(ind(o,i),ind(o,j),data_size);
-    state *ss = ind(o,i)->states;
-    nstates_t ns = ind(o,i)->s;
+static inline uint8_t makefrom(node *o, int i, int j, int d) {
+    node *n = ind(o,i);
+    memcpy(n,ind(o,j),data_size);
+    state *ss = n->states;
+    nstates_t ns = n->s;
     for (int i = 0; i < ns; i++) {
         drop(ss+i, d);
     }
-    ind(o,i)->r--;
+    n->r--;
     nstates_t x = sort_and_merge_states(ss, ns);
     if (x != FAIL) {
-        ind(o,i)->s = x;
+        n->s = x;
+#ifdef TRACKMOVES
+        n->moves[n->nmoves-1].drop = i;
+#endif
         return 1 << i;
     }
     return 0;
