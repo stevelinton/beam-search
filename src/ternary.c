@@ -1,6 +1,7 @@
 #include "beam.h"
 #include <stdio.h>
 #include <ctype.h>
+#include <assert.h>
 
 #define MAXMOVE 16
 
@@ -202,6 +203,53 @@ static bool apply(node *c, const move *m) {
     return true;
 }
 
+static inline node *ind(node *arr, int i) {
+    return (node *)(((char *)arr)+i*data_size);
+}
+
+static uint8_t makefrom(node *o, int i, int j, int d) {
+    memcpy(ind(o,i),ind(o,j),data_size);
+    state *ss = ind(o,i)->states;
+    nstates_t ns = ind(o,i)->s;
+    for (int i = 0; i < ns; i++) {
+        drop(ss+i, d);
+    }
+    ind(o,i)->r--;
+    nstates_t x = sort_and_merge_states(ss, ns);
+    if (x != FAIL) {
+        ind(o,i)->s = x;
+        return 1 << i;
+    }
+    return 0;
+}
+
+static uint8_t apply8(const node *c, const move *m, node *o) {
+    uint8_t ok = 0;
+    nstates_t x;
+    state *ss;
+    nstates_t ns = c->s;
+    assert(m->arity == 3 && m->drop == 0);
+    memcpy(o,c,data_size);
+    if (!apply(o,m)) {
+        // can only be register overflow
+        return 0;
+    }
+    ok = 1;    
+    ok |= makefrom(o,1,0,m->r1);
+    ok |= makefrom(o,2,0,m->r2);
+    ok |= makefrom(o,4,0,m->r3);
+    if (ok & 3 == 3)
+        ok |= makefrom(o,3,2,m->r1);
+    if (ok & 5 == 5)
+        ok |= makefrom(o,5,4,m->r1);
+    if (ok & 6 == 6)
+        ok |= makefrom(o,6,4,m->r2);
+    if (ok & 104 == 104)
+        ok |= makefrom(o,7,6,m->r1);
+    return ok;
+}
+
+
 // must take 000->0 so LSB is zero
 //
 // Reps under permutation of inputs
@@ -320,6 +368,9 @@ static void visit_children(const char *parent, void visit(const char *, void *),
     printf("\n"); 
 #endif
     node *ch = malloc(data_size);
+#ifndef BINARY
+    node *children = malloc(data_size*8);
+#endif
     move m;
     for (int i = 0; i < n->r-2; i++) {
         m.r1 = i;
@@ -363,22 +414,25 @@ static void visit_children(const char *parent, void visit(const char *, void *),
             }
 #ifndef BINARY
             m.arity = 3;
+            m.drop = 0;
             for (int k = j+1; k < n->r; k++) {
                 m.r3 = k;
                 for (int op = 0; op < nterns; op++) {
                     m.op = TernaryOps[op];
+                    uint8_t cases = apply8(n,&m,children);
                     for (int drop =0; drop < 8; drop ++) {
-                        m.drop = drop;
-                        memcpy(ch, n, data_size);
-                        if (apply(ch, &m)) {
+                        if (cases & (1 << drop)) {
+                            const char *child = ((const char *)children) + data_size*drop;
 #ifdef DEBUG
+                            m.drop = drop;
                             printf("MOVE ");
                             print_move (&m);                            
                             printf(" CHILD ");
-                            print_node((const char *)ch);
+                            print_node(child);
                             printf("\n");
+                            m.drop = 0;
 #endif
-                            (*visit)((char *)ch, context);
+                            (*visit)(child, context);
                         }
                     }
                 }
