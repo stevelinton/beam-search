@@ -339,6 +339,7 @@ static void visit_children(const char *parent, void visit(const char *, void *),
 #endif
                 (*visit)((char *)ch, context);
             }
+        }
 #endif
         for (int j = i+1; j < n->r; j++) {
             m.arity = 2;
