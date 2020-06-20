@@ -405,7 +405,8 @@ static uint64_t hash( const char *c) {
     h = (h*fnvp) ^ n->r;
     h = (h*fnvp) ^ n->s;    
     for (int i = 0; i < n->s; i++) {
-        h = (h*fnvp) ^ n->states[i].regs ^n->states[i].res;
+        h = (h*fnvp) ^ n->states[i].regs;
+        h = (h*fnvp) ^ n->states[i].res;
     }
 
     return h;    
