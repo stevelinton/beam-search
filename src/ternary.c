@@ -225,9 +225,6 @@ static uint8_t makefrom(node *o, int i, int j, int d) {
 
 static uint8_t apply8(const node *c, const move *m, node *o) {
     uint8_t ok = 0;
-    nstates_t x;
-    state *ss;
-    nstates_t ns = c->s;
     assert(m->arity == 3 && m->drop == 0);
     memcpy(o,c,data_size);
     if (!apply(o,m)) {
@@ -238,13 +235,13 @@ static uint8_t apply8(const node *c, const move *m, node *o) {
     ok |= makefrom(o,1,0,m->r1);
     ok |= makefrom(o,2,0,m->r2);
     ok |= makefrom(o,4,0,m->r3);
-    if (ok & 3 == 3)
+    if ((ok & 3) == 3)
         ok |= makefrom(o,3,2,m->r1);
-    if (ok & 5 == 5)
+    if ((ok & 5) == 5)
         ok |= makefrom(o,5,4,m->r1);
-    if (ok & 6 == 6)
+    if ((ok & 6) == 6)
         ok |= makefrom(o,6,4,m->r2);
-    if (ok & 104 == 104)
+    if ((ok & 104) == 104)
         ok |= makefrom(o,7,6,m->r1);
     return ok;
 }
@@ -295,7 +292,8 @@ void print_coding(coding *c) {
     print_coding_inner(c->size, c->len, c->codewords);    
 }
 
-static void print_move(const move *m) {
+
+void print_move(const move *m) {
     switch(m->arity) {
     case 1:
         printf("not(%i);",(int)m->r1);

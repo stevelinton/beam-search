@@ -1,6 +1,6 @@
 bin_PROGRAMS = addchain ascode aascode addchain2 addchain3 gf4 gf2 grease ternary
 
-AM_CFLAGS = -g -O3 $(OPENMP_CFLAGS)
+AM_CFLAGS = -g -O3 -Wall $(OPENMP_CFLAGS)
 
 BEAM = beam.c beam.h
 addchain_SOURCES = addchain.c $(BEAM)
