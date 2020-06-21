@@ -4,6 +4,7 @@
 #include <assert.h>
 
 #define MAXMOVE 16
+#define ANDN 1
 
 typedef uint16_t regs_t;
 typedef uint16_t res_t;
@@ -203,6 +204,8 @@ static bool apply(node *c, const move *m) {
     return true;
 }
 
+#ifndef BINARY
+
 static inline node *ind(node *arr, int i) {
     return (node *)(((char *)arr)+i*data_size);
 }
@@ -250,7 +253,7 @@ static uint8_t apply8(const node *c, const move *m, node *o) {
     return ok;
 }
 
-
+#endif
 // must take 000->0 so LSB is zero
 //
 // Reps under permutation of inputs
@@ -263,7 +266,10 @@ uint8_t TernaryOps [] = {
   244, 246, 248, 254  };
 
 uint8_t BinaryOps []  = {
-    2,4,6,8,14
+#if ANDN                         
+    2,4,
+#endif
+    6,8,14
         };
 
 const int nterns =sizeof(TernaryOps);
