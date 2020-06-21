@@ -448,6 +448,9 @@ static void visit_children(const char *parent, void visit(const char *, void *),
 #endif
         }
     }
+    #ifndef BINARY
+    free(children);
+    #endif
     free(ch);
 }
 
