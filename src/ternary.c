@@ -39,16 +39,14 @@ typedef struct s_node {
 } node;
 
 typedef struct {
-    int len;
-    int size;
+    uint8_t len;
+    nstates_t size;
     state codewords[];
 } coding;
 
-static int data_size;
+static size_t data_size;
 
-
-
-static int valreg, valstate;
+static fitness_t valreg, valstate;
 
 static uint32_t fitness(const char *cv) {
     node *n = (node *)cv;
@@ -56,11 +54,11 @@ static uint32_t fitness(const char *cv) {
 }
 
 
-int ternary(uint8_t op, int in1, int in2, int in3) {
+uint8_t ternary(uint8_t op, uint8_t in1, uint8_t in2, uint8_t in3) {
     return (op >>  (in1 | in2 | in3)) & 1;
 }
 
-int binary(uint8_t op, int in1, int in2) {
+uint8_t binary(uint8_t op, uint8_t in1, uint8_t in2) {
     return (op >> (in1 | in2)) &1;
 }
 
@@ -83,20 +81,20 @@ void drop(state *st, uint8_t pos) {
     st->regs = r | (l << 1);
 }
 
-int reg_extract_topos(regs_t r, int pos, int to) {
+uint8_t reg_extract_topos(regs_t r, uint8_t pos, uint8_t to) {
     return ((r << pos)>> (NREGS-1-to)) & (1 << to);
 }
 
-int reg_extract(regs_t r, int pos) {
+uint8_t reg_extract(regs_t r, uint8_t pos) {
     return reg_extract_topos(r,pos,0);
 }
 
-void reg_set(regs_t *r, int pos, int val) {
+void reg_set(regs_t *r, uint8_t pos, uint8_t val) {
     *r |= ((val << (NREGS-1)) >> pos);
 }
 
 void apply1(state *st, const move *m, uint8_t nextreg) {
-    int in1, in2, in3;
+    uint8_t in1, in2, in3;
     switch(m->arity) {
     case 1:
         in1 = reg_extract(st->regs, m->r1);
@@ -131,8 +129,8 @@ void apply1(state *st, const move *m, uint8_t nextreg) {
     return;
 }
 
-const static int del2[4] = {1,0,0,-1};
-const static int del3[8] = {1,0,0,-1,0,-1,-1,-2};
+const static uint8_t del2[4] = {1,0,0,-1};
+const static uint8_t del3[8] = {1,0,0,-1,0,-1,-1,-2};
 
 
 
@@ -192,7 +190,7 @@ static bool apply(node *c, const move *m) {
         c->r += del3[m->drop];
         break;
     }
-    if (m->drop) {
+    if (m->arity > 1 && m->drop) {
         c->s = sort_and_merge_states(c->states, c->s);
         if (c->s == FAIL)
             return false;
@@ -321,19 +319,19 @@ void print_move(const move *m) {
         int started = 0;
         printf(" drop(");
         if (m->drop & 1) {
-            printf("%i",m->r1);
+            printf("%i",(int)m->r1);
             started = 1;
         }
         if (m->drop &2) {
             if (started)
                 printf(",");
-            printf("%i",m->r2);
+            printf("%i",(int)m->r2);
             started = 1;
         }
         if (m->drop &4) {
             if (started)
                 printf(",");
-            printf("%i",m->r3);
+            printf("%i",(int)m->r3);
         }
         printf(");");
     }
@@ -380,7 +378,7 @@ static void visit_children(const char *parent, void visit(const char *, void *),
     node *children = malloc(data_size*8);
 #endif
     move m;
-    for (int i = 0; i < n->r-2; i++) {
+    for (int i = 0; i < n->r; i++) {
         m.r1 = i;
 #ifdef BINARY
         m.arity = 1;
@@ -448,9 +446,9 @@ static void visit_children(const char *parent, void visit(const char *, void *),
 #endif
         }
     }
-    #ifndef BINARY
+#ifndef BINARY
     free(children);
-    #endif
+#endif
     free(ch);
 }
 
@@ -465,6 +463,7 @@ static bool equal(const char *a1, const char *a2) {
 #define fnvp 1099511628211ULL
 #define fnvob 14695981039346656037ULL
 
+// could shift to a faster hash
 static uint64_t hash( const char *c) {
     uint64_t h = fnvob;
     node *n = (node *)c;
@@ -490,18 +489,20 @@ coding *read_coding(const char *fn) {
     if (!f)
         return NULL;
     coding *c = calloc(sizeof(coding) + sizeof(state)*256,1);
-    int len = 0;
-    int size = 0;
-    int res;
+    uint8_t len = 0;
+    nstates_t size = 0;
+    res_t res;
     while (1) {
-        if (1 != fscanf(f,"%i", &res))
+        int x;
+        if (1 != fscanf(f,"%i", &x))
             break;
+        res = x;
         int ch = fgetc1(f);
         if (ch != '(') {
             return NULL;
         }
-        uint16_t wd;
-        int thislen;
+        regs_t wd;
+        uint8_t thislen;
         while (1) {
             wd = 0;
             thislen = 0;
@@ -536,10 +537,17 @@ coding *read_coding(const char *fn) {
     return c;
 }
 
-int read_params(const char *fn, int *P, int *steps,  int *valreg, int *valstate, int *beamsize, int *maxval) {
+int read_params(const char *fn, int *P, int *steps, fitness_t *valreg, fitness_t *valstate, size_t *beamsize, fitness_t *maxval) {
     FILE *f = fopen(fn, "r");
-    if (!f || 6 != fscanf(f, "%i%i%i%i%i%i", P, steps, valreg, valstate, beamsize, maxval))
+    int a,b,c,d,e,g;
+    if (!f || 6 != fscanf(f, "%i%i%i%i%i%i", &a, &b, &c, &d, &e, &g))
         return 0;
+    *P = a;
+    *steps = b;
+    *valreg = c;
+    *valstate = d;
+    *beamsize = e;
+    *maxval = g;
     fclose(f);
     return 1;
 }
@@ -552,7 +560,7 @@ static node *make_seed(coding *b, coding *c, int P) {
     node* seed = calloc(data_size,1);
     seed->s = b->size*c->size;
     seed->r = b->len+c->len;
-    int k = 0;
+    nstates_t k = 0;
     for (int i = 0; i < b->size; i++) {
         regs_t r = b->codewords[i].regs >> c->len;
         res_t s = b->codewords[i].res;
@@ -572,11 +580,11 @@ static node *make_seed(coding *b, coding *c, int P) {
     
 
 int main(int argc, char **argv) {
-    int beamsize;
+    size_t beamsize;
     int nprobes = 4;
-    int nresults;
+    size_t nresults;
     int steps;
-    int maxval;
+    fitness_t maxval;
     int P;
     if (argc < 4) {
         printf("Usage: ternary <b-code> <c-code> <params>\n");
@@ -598,8 +606,14 @@ int main(int argc, char **argv) {
         printf("Error reading files\n");
         exit(EXIT_FAILURE);
     }
+#ifdef TRACKMOVES
+    if (steps > MAXMOVE) {
+        printf("No room to record that many steps -- recompile with bigger MAXMOVE\n");
+        exit(EXIT_FAILURE);
+    }
+#endif
     data_size = sizeof(node) + sizeof(state)*b->size*c->size;
-    printf("Parameters: %i %i %i %i %i %i\n", P, steps, valreg, valstate, beamsize,maxval);
+    printf("Parameters: %i %u %u %i %lu %u\n", P, steps, valreg, valstate, beamsize,maxval);
     node *seed = make_seed(b,c,P);
     printf("Starting search at ");
     print_node((char *)seed);

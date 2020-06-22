@@ -5,11 +5,11 @@
 #define cpu_relax() asm volatile("pause\n" : : : "memory")
 
 typedef struct s_hashtab {
-    uint32_t *fitness; 
+    fitness_t *fitness; 
     char *data;
     size_t data_size;
     size_t tabsize;
-    uint32_t (*fitness_func)(const char *);
+    fitness_t (*fitness_func)(const char *);
     bool (*equal)(const char *, const char *);
     uint64_t (*hash)(const char *);
     uint64_t nprobes;
@@ -17,14 +17,14 @@ typedef struct s_hashtab {
 } * hashtab;
 
 static hashtab new_ht(size_t data_size, size_t tabsize,
-                      uint32_t (*fitness_func)(const char *),
+                      fitness_t (*fitness_func)(const char *),
                       bool (*equal)(const char *, const char *),
                       uint64_t (*hash)(const char *), uint64_t nprobes,
                       void (*print_item)(const char *)) {
   hashtab h = (hashtab)malloc(sizeof(struct s_hashtab));
   if (tabsize < 17)
     tabsize = 17;
-  h->fitness = (uint32_t *)calloc(4, tabsize);
+  h->fitness = (fitness_t *)calloc(4, tabsize);
   h->data = calloc(data_size, tabsize);
   h->data_size = data_size;
   h->tabsize = tabsize;
@@ -44,9 +44,9 @@ static void free_ht(hashtab h) {
 
 #define IN_USE 0xFFFFFFFF
 
-uint32_t get_control(hashtab h, uint64_t k, uint32_t fit) {
+fitness_t get_control(hashtab h, uint64_t k, fitness_t fit) {
   while (1) {
-    uint32_t nfit = __sync_val_compare_and_swap(&(h->fitness[k]), fit, IN_USE);
+    fitness_t nfit = __sync_val_compare_and_swap(&(h->fitness[k]), fit, IN_USE);
     if (nfit == fit) {
       //            printf("Locked %li %i %i\n",k, omp_get_thread_num(), fit);
       return fit;
@@ -62,7 +62,7 @@ static bool earlystop;
 static void ht_probe(hashtab h, const char *item) {
   uint64_t key = h->hash(item);
   uint64_t key1 = 13 - key % 13;
-  uint32_t myfit = h->fitness_func(item);
+  fitness_t myfit = h->fitness_func(item);
   if (myfit == stop_fitness)
       earlystop = true;
   void *tmp_item[2] = {alloca(h->data_size), alloca(h->data_size)};
@@ -72,7 +72,7 @@ static void ht_probe(hashtab h, const char *item) {
   // h->print_item(item);
   for (int i = 0; i < h->nprobes; i++) {
     key %= h->tabsize;
-    uint32_t fit;
+    fitness_t fit;
     fit = h->fitness[key];
     while (fit == IN_USE) {
       cpu_relax();
@@ -160,7 +160,7 @@ static hashtab nextgen(const hashtab h,
                        int beamsize) {
   hashtab newtab = new_ht(h->data_size, beamsize, h->fitness_func, h->equal,
                           h->hash, h->nprobes, h->print_item);
-   #pragma omp parallel for
+     #pragma omp parallel for
   for (int i = 0; i < h->tabsize; i++) {
     if (h->fitness[i] != 0) {
         //        h->print_item((char *)(h->data + h->data_size * i));
@@ -176,9 +176,9 @@ beam_search(const char *seeds, int nseeds,
             void visit_children(const char *,
                                 void (*visit)(const char *, void *), void *),
             int beamsize, int ngens, size_t data_size,
-            uint32_t fitness_func(const char *),
+            fitness_t fitness_func(const char *),
             bool equal(const char *, const char *), uint64_t hash(const char *),
-            int nprobes, void print_item(const char *), int *nresults) {
+            int nprobes, void print_item(const char *), size_t *nresults) {
   hashtab current = new_ht(data_size, beamsize, fitness_func, equal, hash,
                            nprobes, print_item);
   probe_multi(current, seeds, nseeds);

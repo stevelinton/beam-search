@@ -31,9 +31,11 @@ the return value is the array of returned objects.
 // when it is discovered the search is terminated at the end of the current generation
 // if you don't want this, just never use this fitness value.a
 
+typedef uint32_t fitness_t;
+
 extern char *beam_search(
     const char *seeds, int nseeds,
     void visit_children(const char *, void (*)(const char *, void *), void *),
-    int beamsize, int ngens, size_t data_size, uint32_t fitness(const char *),
+    int beamsize, int ngens, size_t data_size, fitness_t fitness(const char *),
     bool equal(const char *, const char *), uint64_t hash(const char *),
-    int nprobes, void print_item(const char *), int *nresults);
+    int nprobes, void print_item(const char *), size_t *nresults);
