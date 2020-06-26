@@ -202,7 +202,6 @@ static bool apply(node *c, const move *m) {
     return true;
 }
 
-#ifndef BINARY
 
 static inline node *ind(node *arr, int i) {
     return (node *)(((char *)arr)+i*data_size);
@@ -228,6 +227,8 @@ static inline uint8_t makefrom(node *o, int i, int j, int d) {
     return 0;
 }
 
+#ifndef BINARY
+
 static uint8_t apply8(const node *c, const move *m, node *o) {
     uint8_t ok = 0;
     assert(m->arity == 3 && m->drop == 0);
@@ -252,6 +253,23 @@ static uint8_t apply8(const node *c, const move *m, node *o) {
 }
 
 #endif
+
+static uint8_t apply4(const node *c, const move *m, node *o) {
+    uint8_t ok = 0;
+    assert(m->arity == 2 && m->drop == 0);
+    memcpy(o,c,data_size);
+    if (!apply(o,m)) {
+        // can only be register overflow
+        return 0;
+    }
+    ok = 1;    
+    ok |= makefrom(o,1,0,m->r1);
+    ok |= makefrom(o,2,0,m->r2);
+    if ((ok & 3) == 3)
+        ok |= makefrom(o,3,2,m->r1);
+    return ok;
+}    
+
 // must take 000->0 so LSB is zero
 //
 // Reps under permutation of inputs
@@ -374,9 +392,7 @@ static void visit_children(const char *parent, void visit(const char *, void *),
     printf("\n"); 
 #endif
     node *ch = malloc(data_size);
-#ifndef BINARY
     node *children = malloc(data_size*8);
-#endif
     move m;
     for (int i = 0; i < n->r; i++) {
         m.r1 = i;
@@ -400,23 +416,27 @@ static void visit_children(const char *parent, void visit(const char *, void *),
 #endif
         for (int j = i+1; j < n->r; j++) {
             m.arity = 2;
+            m.drop = 0;
             m.r2 = j;
             for (int op = 0; op < nbins; op++) {
-                m.op = BinaryOps[op];
-                for (int drop = 0; drop < 4; drop ++) {
-                    m.drop = drop;
-                    memcpy(ch, n, data_size);
-                    if (apply(ch, &m)) {
+                m.op = BinaryOps[op];                
+                uint8_t cases = apply4(n,&m,children);
+                for (int drop =0; drop < 4; drop ++) {
+                    if (cases & (1 << drop)) {
+                        const char *child = ((const char *)children) + data_size*drop;
 #ifdef DEBUG
+                        m.drop = drop;
                         printf("MOVE ");
                         print_move (&m);                            
                         printf(" CHILD ");
-                        print_node((const char *)ch);
+                        print_node(child);
                         printf("\n");
+                        m.drop = 0;
 #endif
-                        (*visit)((char *)ch, context);
-                        }
+                        (*visit)(child, context);
+                    }
                 }
+                
             }
 #ifndef BINARY
             m.arity = 3;
@@ -446,9 +466,7 @@ static void visit_children(const char *parent, void visit(const char *, void *),
 #endif
         }
     }
-#ifndef BINARY
     free(children);
-#endif
     free(ch);
 }
 
