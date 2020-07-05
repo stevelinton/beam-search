@@ -425,7 +425,6 @@ static void print_node(const char *np) {
 
 static void visit_children(const char *parent, void visit(const char *, void *), void *context) {
     node *n = (node *)parent;
-    static int ct;
 #ifdef DEBUG
     printf("VC ");
     print_node((const char *)n);
