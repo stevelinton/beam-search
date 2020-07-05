@@ -46,12 +46,8 @@ typedef struct {
 
 static size_t data_size;
 
-static fitness_t valreg, valstate;
+static fitness_t valreg, valstate, valh;
 
-static uint32_t fitness(const char *cv) {
-    node *n = (node *)cv;
-    return 1000000 - valstate*n->s - valreg*n->r;
-}
 
 
 uint8_t ternary(uint8_t op, uint8_t in1, uint8_t in2, uint8_t in3) {
@@ -68,11 +64,11 @@ const static regs_t mask1[16] = {
                                    127, 63, 31, 15, 
                                    7, 3, 1, 0, 
 };
-const static regs_t mask2[16] = {
+const static regs_t mask2[17] = {
                                    0, 32768, 49152, 57344, 
                                    61440, 63488, 64512, 65024, 
                                    65280, 65408, 65472, 65504, 
-                                   65520, 65528, 65532, 65534, 
+                                   65520, 65528, 65532, 65534, 65535
 };
 
 void drop(state *st, uint8_t pos) {
@@ -91,6 +87,30 @@ uint8_t reg_extract(regs_t r, uint8_t pos) {
 
 void reg_set(regs_t *r, uint8_t pos, uint8_t val) {
     *r |= ((val << (NREGS-1)) >> pos);
+}
+
+
+uint64_t hamming_states(node *n) {
+    uint64_t score = 0;
+    for (int i = 0; i < n->s-1; i++) {
+        res_t r = n->states[i].res;
+        regs_t rg = n->states[i].regs;
+        for (int j = i+1; j < n->s; j++) {
+            if (n->states[j].res == r) {
+                score += __builtin_popcount(rg ^ n->states[j].regs);
+            }
+        }
+    }
+    return score;
+}
+
+
+static uint32_t fitness(const char *cv) {
+    node *n = (node *)cv;
+    fitness_t f =  1000000 - valstate*n->s - valreg*n->r;
+    if (valh)
+        f -= valh*hamming_states(n);
+    return f;
 }
 
 void apply1(state *st, const move *m, uint8_t nextreg) {
@@ -276,16 +296,35 @@ static uint8_t apply4(const node *c, const move *m, node *o) {
 // Unary functions omitted 
 
 uint8_t TernaryOps [] = {
-    2, 4, 6, 8, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 38, 40, 42, 44, 46, 50, 52, 54, 56, 58, 62, 64, 66, 70, 72, 74, 76, 78, 82, 
-  84, 86, 88, 92, 94, 96, 98, 100, 104, 106, 108, 110, 112, 114, 116, 118, 120, 122, 124, 126, 128, 130, 132, 134, 138, 140, 142, 144, 146, 148, 150, 152, 154, 156, 158, 162, 164, 
-  166, 168, 172, 174, 176, 178, 180, 182, 184, 186, 188, 190, 194, 196, 198, 200, 202, 206, 208, 210, 212, 214, 216, 218, 220, 222, 224, 226, 228, 230, 232, 234, 236, 242, 
-  244, 246, 248, 254  };
+#ifdef ARM
+                         226, 216, 202, 172, 228, 184 //BIF, BIT, BSL
+#else
+    2, 4, 6, 8, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 38, 40, 42, 44, 46, 50, 52,
+    54, 56, 58, 62, 64, 66, 70, 72, 74, 76, 78, 82, 84, 86, 88, 92, 94, 96, 98, 100,
+    104, 106, 108, 110, 112, 114, 116, 118, 120, 122, 124, 126, 128, 130, 132, 134,
+    138, 140, 142, 144, 146, 148, 150, 152, 154, 156, 158, 162, 164, 166, 168, 172,
+    174, 176, 178, 180, 182, 184, 186, 188, 190, 194, 196, 198, 200, 202, 206, 208,
+    210, 212, 214, 216, 218, 220, 222, 224, 226, 228, 230, 232, 234, 236, 242, 
+    244, 246, 248, 254
+#ifdef ALLTERN
+    ,1, 7, 9, 11, 13, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47, 49, 53, 
+  55, 57, 59, 61, 65, 67, 69, 71, 73, 75, 77, 79, 81, 83, 87, 89, 91, 93, 97, 99, 101, 
+  103, 105, 107, 109, 111, 113, 115, 117, 121, 123, 125, 127, 129, 131, 133, 135, 137, 
+  139, 141, 143, 145, 147, 149, 151, 155, 157, 159, 161, 163, 167, 169, 171, 173, 177, 
+  179, 181, 183, 185, 189, 191, 193, 197, 199, 201, 203, 205, 209, 211, 213, 215, 217, 
+  219, 223, 225, 227, 229, 231, 233, 235, 237, 239, 241, 247, 249, 251, 253 
+#endif
+#endif
+};
 
 uint8_t BinaryOps []  = {
-#if ANDN                         
+#if ANDN || defined(ARM)                         
     2,4,
 #endif
     6,8,14
+#ifdef ARM
+    ,11,13 // ORNOT
+#endif
         };
 
 const int nterns =sizeof(TernaryOps);
@@ -362,8 +401,8 @@ static void print_node(const char *np) {
     for (int i = 1; i < n->s; i++) {
         state s = states[i];
        int j = i-1;
-        while (states[j].res > s.res ||
-               (states[j].res == s.res && states[j].regs > s.regs)) {
+       while (j >= 0 && (states[j].res > s.res ||
+                         (states[j].res == s.res && states[j].regs > s.regs))) {
             states[j+1] = states[j];
             j--;
         }
@@ -386,6 +425,7 @@ static void print_node(const char *np) {
 
 static void visit_children(const char *parent, void visit(const char *, void *), void *context) {
     node *n = (node *)parent;
+    static int ct;
 #ifdef DEBUG
     printf("VC ");
     print_node((const char *)n);
@@ -396,7 +436,7 @@ static void visit_children(const char *parent, void visit(const char *, void *),
     move m;
     for (int i = 0; i < n->r; i++) {
         m.r1 = i;
-#ifdef BINARY
+#if defined(BINARY) || defined(ARM)        
         m.arity = 1;
         m.op = 1;
         for (int drop = 0; drop < 2; drop++) {
@@ -555,15 +595,17 @@ coding *read_coding(const char *fn) {
     return c;
 }
 
-int read_params(const char *fn, int *P, int *steps, fitness_t *valreg, fitness_t *valstate, size_t *beamsize, fitness_t *maxval) {
+int read_params(const char *fn, int *P, int *steps, fitness_t *valreg, fitness_t *valstate, fitness_t *valh,
+                size_t *beamsize, fitness_t *maxval) {
     FILE *f = fopen(fn, "r");
-    int a,b,c,d,e,g;
-    if (!f || 6 != fscanf(f, "%i%i%i%i%i%i", &a, &b, &c, &d, &e, &g))
+    int a,b,c,d,e,g,v;
+    if (!f || 7 != fscanf(f, "%i%i%i%i%i%i%i", &a, &b, &c, &d, &v, &e, &g))
         return 0;
     *P = a;
     *steps = b;
     *valreg = c;
     *valstate = d;
+    *valh = v;
     *beamsize = e;
     *maxval = g;
     fclose(f);
@@ -620,7 +662,7 @@ int main(int argc, char **argv) {
         print_coding(c);
         printf("\n");
     }
-    if (!b || !c || !read_params(argv[3], &P, &steps, &valreg, &valstate, &beamsize, &maxval)) {
+    if (!b || !c || !read_params(argv[3], &P, &steps, &valreg, &valstate, &valh, &beamsize, &maxval)) {
         printf("Error reading files\n");
         exit(EXIT_FAILURE);
     }
@@ -631,7 +673,7 @@ int main(int argc, char **argv) {
     }
 #endif
     data_size = sizeof(node) + sizeof(state)*b->size*c->size;
-    printf("Parameters: %i %u %u %i %lu %u\n", P, steps, valreg, valstate, beamsize,maxval);
+    printf("Parameters: %i %u %u %i %i %lu %u\n", P, steps, valreg, valstate, valh, beamsize,maxval);
     node *seed = make_seed(b,c,P);
     printf("Starting search at ");
     print_node((char *)seed);
